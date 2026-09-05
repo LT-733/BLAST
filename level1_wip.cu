@@ -5,6 +5,8 @@
 #include <thrust/complex.h>
 
 constexpr int BLOCK_SIZE = 256;
+constexpr int WARP_SIZE = 32;
+constexpr int WARP_PER_BLOCK = 8;
 
 template <unsigned int blockSize, typename T>
 __device__ void warpReduce(/*volatile*/ T *sdata, unsigned int tid) {
@@ -24,7 +26,6 @@ __global__ void reduce(T *g_idata, T *g_odata, unsigned int n) {
     unsigned int i = blockIdx.x*(blockSize*2) + tid;
     unsigned int gridSize = blockSize*2*gridDim.x;
     sdata[tid] = 0;
-    #pragma unroll
     while (i < n) { 
         sdata[tid] += g_idata[i] + (i+blockSize < n ? g_idata[i+blockSize] : T(0));
         i += gridSize; 
@@ -146,8 +147,47 @@ void swap(unsigned int n, T *x, T *y){
     cudaFree(gpuy);
 }
 
+// template <typename T>
+__global__ void single_dot(int n, float *x, float *y, float *res){
+    float4* xcasted = reinterpret_cast<float4*>(x);
+    float4* ycasted = reinterpret_cast<float4*>(y);
+    float4* rescasted = reinterpret_cast<float4*>(res);
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if(i < n/4){
+        rescasted[i].x = xcasted[i].x * ycasted[i].x;
+        rescasted[i].y = xcasted[i].y * ycasted[i].y;
+        rescasted[i].z = xcasted[i].z * ycasted[i].z;
+        rescasted[i].w = xcasted[i].w * ycasted[i].w;
+    }else{
+        int const start_idx{i * 4};
+        int const leftover{n - i*4};
+        for(int j{0}; j < leftover; ++j){
+            res[start_idx+j] = x[start_idx+j] * y[start_idx+j];
+        }
+    }
+}
+
+__global__ void single_dot_onwarp(int n, float* x, float* y, float* res){
+    unsigned int warp_id = blockIdx.x * WARP_PER_BLOCK + threadIdx.x / WARP_SIZE;
+    int ith_turn_to_n = WARP_PER_BLOCK;
+    int leftover_idx = threadIdx.x % WARP_SIZE;
+    float tmp = 0.0f;
+    #pragma unroll
+    for(int idx = 0; idx < ith_turn_to_n; ++idx){
+        int overall_idx = blockIdx.x * BLOCK_SIZE + idx * WARP_SIZE + leftover_idx;
+        if(overall_idx < n) tmp += x[overall_idx] * y[overall_idx];
+    }
+    // so that is basically 32 bit and if you do any xor you will flip all digits, essentially binary searching and adding
+    unsigned int bitmask = 0xffffffff;
+    #pragma unroll
+    for(int i = WARP_SIZE / 2; i >= 1; i/=2){
+        tmp += __shfl_down_sync(bitmask, tmp, i);
+    }
+    if(leftover_idx == 0) res[warp_id] = tmp;
+}
+
 template <typename T>
-__global__ void single_dot(int n, const T* __restrict__ x, const T * __restrict__ y, T *res){
+__global__ void single_dotu(int n, thrust::complex<T> *x, thrust::complex<T> *y, thrust::complex<T> *res){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if(i < n){
         res[i] = x[i] * y[i];
@@ -165,18 +205,19 @@ __global__ void single_dotc(int n, thrust::complex<T> *x, thrust::complex<T> *y,
 template <typename T>
 T dot(unsigned int n, T *x, T *y){
     T result = T(0);
-    int numblocks = (n + BLOCK_SIZE-1)/BLOCK_SIZE;
+    int numblocks_kernel = ((n+3)/4 + BLOCK_SIZE-1)/BLOCK_SIZE;
+    int numblocks = (n+BLOCK_SIZE-1)/BLOCK_SIZE;
     T *gpua, *gpub;
     T *gpu_intermediate_res;
     T *gpu_res, *res = new T[numblocks];
     int size = n * sizeof(T);
     cudaMalloc(&gpua, size);
     cudaMalloc(&gpub, size);
-    cudaMalloc(&gpu_intermediate_res, size);
+    cudaMalloc(&gpu_intermediate_res, numblocks * WARP_PER_BLOCK);
     cudaMalloc(&gpu_res, numblocks * sizeof(T));
     cudaMemcpy (gpua, x, size, cudaMemcpyHostToDevice);
     cudaMemcpy (gpub, y, size, cudaMemcpyHostToDevice);
-    single_dot<<<numblocks, BLOCK_SIZE>>>(n, gpua, gpub, gpu_intermediate_res);
+    single_dot_onwarp<<<numblocks_kernel, BLOCK_SIZE>>>(n, gpua, gpub, gpu_intermediate_res);
     reduce<BLOCK_SIZE, T><<<numblocks, BLOCK_SIZE, BLOCK_SIZE * sizeof(T)>>>(gpu_intermediate_res, gpu_res, n);
     cudaMemcpy (res, gpu_res, numblocks * sizeof(T), cudaMemcpyDeviceToHost);
     for(int i = 0; i < numblocks; ++i){
@@ -204,7 +245,7 @@ thrust::complex<T> dotu(unsigned int n, thrust::complex<T> *x, thrust::complex<T
     cudaMalloc(&gpu_res, numblocks * sizeof(thrust::complex<T>));
     cudaMemcpy (gpua, x, size, cudaMemcpyHostToDevice);
     cudaMemcpy (gpub, y, size, cudaMemcpyHostToDevice);
-    single_dot<thrust::complex<T>><<<numblocks, BLOCK_SIZE>>>(n, gpua, gpub, gpu_intermediate_res);
+    single_dotu<<<numblocks, BLOCK_SIZE>>>(n, gpua, gpub, gpu_intermediate_res);
     reduce<BLOCK_SIZE, thrust::complex<T>><<<numblocks, BLOCK_SIZE, BLOCK_SIZE * sizeof(thrust::complex<T>)>>>(gpu_intermediate_res, gpu_res, n);
     cudaMemcpy (res, gpu_res, numblocks * sizeof(thrust::complex<T>), cudaMemcpyDeviceToHost);
     for(int i = 0; i < numblocks; ++i){
@@ -408,13 +449,14 @@ int main(){
         x[i] = 1.0f;
         y[i] = 2.0f;
     }
-    float regularres = dot(N, x, y);
     thrust::complex<float> resc = dotu(N, a, b);
     thrust::complex<float> res = dotc(N, a, b);
     float res2 = dot_double_precision(N, x, y);
     int res3 = i_amax(2, f);
-    float resforasum = asum(N, a);
-    float l2norm = nrm2(N, x);
+    float resforasum = asum(N, a, b);
+    float l2norm = nrm2(N, a);
+    axpy(n, x, y, 1.0f);
+    scal(n, x, 2.0f);
     // std::cout<<res<<"\n";
     // std::cout<<res2<<"\n";
     // std::cout<<res3<<"\n";
