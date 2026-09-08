@@ -14,13 +14,14 @@ After building these tools I had to benchmark them, because otherwise I would ha
 
 <img width="1244" height="269" alt="image" src="https://github.com/user-attachments/assets/0843bc59-184b-4e19-90f4-f418a120d3cc" />
 
-<img width="1244" height="349" alt="image" src="https://github.com/user-attachments/assets/a37c9813-4a1e-4ed7-9d37-3efa6c1a6a5d" />
+<img width="963" height="358" alt="image" src="https://github.com/user-attachments/assets/cb3115bf-ec73-4efe-88bc-68a961f0104e" />
 
-<img width="1244" height="343" alt="image" src="https://github.com/user-attachments/assets/336b0fc8-fa3b-451a-aa59-12d074ba0b95" />
+<img width="1052" height="326" alt="image" src="https://github.com/user-attachments/assets/56cdbcdf-7710-4db8-9942-1854f1952b6a" />
 
-<img width="571" height="275" alt="image" src="https://github.com/user-attachments/assets/517280b1-7448-4d3b-9aa3-6096298f486a" />
+<img width="1052" height="271" alt="image" src="https://github.com/user-attachments/assets/8d6342eb-d8d4-41c3-af9a-91d091030630" />
 
-That is about a 25x speed up, because of the warp level computation and one warp reduction, rather than letting one thread handle a row.
+That is about a 10x speed up, (could be 25x for small n like n = 1024) because of the warp level computation and one warp reduction, rather than letting one thread handle a row.
+Also, that is some impressive achieved occupancy.
 
 2. The fixes for modern CC 7.x and rewrites on parallel reduction for template programming support
 ```
