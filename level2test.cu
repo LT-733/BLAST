@@ -65,10 +65,10 @@ bool test_gemv_large() {
     return passed;
 }
 
-// 2. TRMV Naive (N = 1024 -> 1,048,576 total matrix elements)
+// 2. TRMV Naive (N = 1<<15 -> god knows how many total matrix elements)
 bool test_trmv_large() {
-    std::cout << "[Running TRMV Naive Large Test (N=1024)]..." << std::endl;
-    constexpr unsigned int n = 1024;
+    std::cout << "[Running TRMV Naive Large Test (N=1<<15)]..." << std::endl;
+    constexpr unsigned int n = 1<<15;
     size_t size_A = static_cast<size_t>(n) * n;
 
     std::vector<half> h_A(size_A, __float2half(0.0f));
@@ -109,10 +109,10 @@ bool test_trmv_large() {
     return passed;
 }
 
-// 3. TRMV Optimized (N = 1024 -> 1,048,576 total matrix elements)
+// 3. TRMV Optimized (N = 1<<15 -> god knows how many total matrix elements)
 bool test_trmv_optimized_large() {
-    std::cout << "[Running TRMV Optimized Large Test (N=1024)]..." << std::endl;
-    constexpr unsigned int n = 1024;
+    std::cout << "[Running TRMV Optimized Large Test (N=1<<15)]..." << std::endl;
+    constexpr unsigned int n = 1<<15;
     size_t size_A = static_cast<size_t>(n) * n;
 
     std::vector<half> h_A(size_A, __float2half(0.0f));
