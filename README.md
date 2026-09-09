@@ -5,7 +5,7 @@ I wrote some CUDA kernels to execute these linear algebraic subroutines. BLAST's
 
 ## So, What did I Learn?
 After building these tools I had to benchmark them, because otherwise I would have no way to find how efficient these kernels are on Nvidia GPUs. For
- reference, this is the data from running the kernels with at least one dimension of the size being 1<<20, and the host hardware being the Tesla T4 on 
+ reference, this is the data from running the kernels with at least one dimension of the size being 1<<20, (Level 2's Matrix Vector multiplication had to be tested with size 1<<15 because I don't want my GPU to blow up) and the host hardware being the Tesla T4 on 
  the Turing architecture, measured by Nvidia Nsight Compute.
 
  Anyways, here are some highlights about the work done:
